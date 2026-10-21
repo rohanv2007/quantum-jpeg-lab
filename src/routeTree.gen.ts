@@ -10,33 +10,117 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as WorkbenchRouteImport } from './routes/_workbench'
+import { Route as WorkbenchBenchmarksRouteImport } from './routes/_workbench.benchmarks'
+import { Route as WorkbenchOverviewRouteImport } from './routes/_workbench.overview'
+import { Route as WorkbenchSettingsRouteImport } from './routes/_workbench.settings'
+import { Route as WorkbenchSimulationRouteImport } from './routes/_workbench.simulation'
+import { Route as WorkbenchRunsIndexRouteImport } from './routes/_workbench.runs.index'
+import { Route as WorkbenchRunsRunIdRouteImport } from './routes/_workbench.runs.$runId'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const WorkbenchRoute = WorkbenchRouteImport.update({
+  id: '/_workbench',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const WorkbenchBenchmarksRoute = WorkbenchBenchmarksRouteImport.update({
+  id: '/benchmarks',
+  path: '/benchmarks',
+  getParentRoute: () => WorkbenchRoute,
+} as any)
+const WorkbenchOverviewRoute = WorkbenchOverviewRouteImport.update({
+  id: '/overview',
+  path: '/overview',
+  getParentRoute: () => WorkbenchRoute,
+} as any)
+const WorkbenchSettingsRoute = WorkbenchSettingsRouteImport.update({
+  id: '/settings',
+  path: '/settings',
+  getParentRoute: () => WorkbenchRoute,
+} as any)
+const WorkbenchSimulationRoute = WorkbenchSimulationRouteImport.update({
+  id: '/simulation',
+  path: '/simulation',
+  getParentRoute: () => WorkbenchRoute,
+} as any)
+const WorkbenchRunsIndexRoute = WorkbenchRunsIndexRouteImport.update({
+  id: '/runs/',
+  path: '/runs/',
+  getParentRoute: () => WorkbenchRoute,
+} as any)
+const WorkbenchRunsRunIdRoute = WorkbenchRunsRunIdRouteImport.update({
+  id: '/runs/$runId',
+  path: '/runs/$runId',
+  getParentRoute: () => WorkbenchRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/benchmarks': typeof WorkbenchBenchmarksRoute
+  '/overview': typeof WorkbenchOverviewRoute
+  '/settings': typeof WorkbenchSettingsRoute
+  '/simulation': typeof WorkbenchSimulationRoute
+  '/runs/$runId': typeof WorkbenchRunsRunIdRoute
+  '/runs/': typeof WorkbenchRunsIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/benchmarks': typeof WorkbenchBenchmarksRoute
+  '/overview': typeof WorkbenchOverviewRoute
+  '/settings': typeof WorkbenchSettingsRoute
+  '/simulation': typeof WorkbenchSimulationRoute
+  '/runs/$runId': typeof WorkbenchRunsRunIdRoute
+  '/runs': typeof WorkbenchRunsIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/_workbench': typeof WorkbenchRouteWithChildren
+  '/_workbench/benchmarks': typeof WorkbenchBenchmarksRoute
+  '/_workbench/overview': typeof WorkbenchOverviewRoute
+  '/_workbench/settings': typeof WorkbenchSettingsRoute
+  '/_workbench/simulation': typeof WorkbenchSimulationRoute
+  '/_workbench/runs/$runId': typeof WorkbenchRunsRunIdRoute
+  '/_workbench/runs/': typeof WorkbenchRunsIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/'
+  fullPaths:
+    | '/'
+    | '/benchmarks'
+    | '/overview'
+    | '/settings'
+    | '/simulation'
+    | '/runs/$runId'
+    | '/runs/'
   fileRoutesByTo: FileRoutesByTo
-  to: '/'
-  id: '__root__' | '/'
+  to:
+    | '/'
+    | '/benchmarks'
+    | '/overview'
+    | '/settings'
+    | '/simulation'
+    | '/runs/$runId'
+    | '/runs'
+  id:
+    | '__root__'
+    | '/'
+    | '/_workbench'
+    | '/_workbench/benchmarks'
+    | '/_workbench/overview'
+    | '/_workbench/settings'
+    | '/_workbench/simulation'
+    | '/_workbench/runs/$runId'
+    | '/_workbench/runs/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  WorkbenchRoute: typeof WorkbenchRouteWithChildren
 }
 
 declare module '@tanstack/react-router' {
@@ -48,11 +132,83 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/_workbench': {
+      id: '/_workbench'
+      path: ''
+      fullPath: '/'
+      preLoaderRoute: typeof WorkbenchRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/_workbench/benchmarks': {
+      id: '/_workbench/benchmarks'
+      path: '/benchmarks'
+      fullPath: '/benchmarks'
+      preLoaderRoute: typeof WorkbenchBenchmarksRouteImport
+      parentRoute: typeof WorkbenchRoute
+    }
+    '/_workbench/overview': {
+      id: '/_workbench/overview'
+      path: '/overview'
+      fullPath: '/overview'
+      preLoaderRoute: typeof WorkbenchOverviewRouteImport
+      parentRoute: typeof WorkbenchRoute
+    }
+    '/_workbench/settings': {
+      id: '/_workbench/settings'
+      path: '/settings'
+      fullPath: '/settings'
+      preLoaderRoute: typeof WorkbenchSettingsRouteImport
+      parentRoute: typeof WorkbenchRoute
+    }
+    '/_workbench/simulation': {
+      id: '/_workbench/simulation'
+      path: '/simulation'
+      fullPath: '/simulation'
+      preLoaderRoute: typeof WorkbenchSimulationRouteImport
+      parentRoute: typeof WorkbenchRoute
+    }
+    '/_workbench/runs/': {
+      id: '/_workbench/runs/'
+      path: '/runs'
+      fullPath: '/runs/'
+      preLoaderRoute: typeof WorkbenchRunsIndexRouteImport
+      parentRoute: typeof WorkbenchRoute
+    }
+    '/_workbench/runs/$runId': {
+      id: '/_workbench/runs/$runId'
+      path: '/runs/$runId'
+      fullPath: '/runs/$runId'
+      preLoaderRoute: typeof WorkbenchRunsRunIdRouteImport
+      parentRoute: typeof WorkbenchRoute
+    }
   }
 }
 
+interface WorkbenchRouteChildren {
+  WorkbenchBenchmarksRoute: typeof WorkbenchBenchmarksRoute
+  WorkbenchOverviewRoute: typeof WorkbenchOverviewRoute
+  WorkbenchSettingsRoute: typeof WorkbenchSettingsRoute
+  WorkbenchSimulationRoute: typeof WorkbenchSimulationRoute
+  WorkbenchRunsRunIdRoute: typeof WorkbenchRunsRunIdRoute
+  WorkbenchRunsIndexRoute: typeof WorkbenchRunsIndexRoute
+}
+
+const WorkbenchRouteChildren: WorkbenchRouteChildren = {
+  WorkbenchBenchmarksRoute: WorkbenchBenchmarksRoute,
+  WorkbenchOverviewRoute: WorkbenchOverviewRoute,
+  WorkbenchSettingsRoute: WorkbenchSettingsRoute,
+  WorkbenchSimulationRoute: WorkbenchSimulationRoute,
+  WorkbenchRunsRunIdRoute: WorkbenchRunsRunIdRoute,
+  WorkbenchRunsIndexRoute: WorkbenchRunsIndexRoute,
+}
+
+const WorkbenchRouteWithChildren = WorkbenchRoute._addFileChildren(
+  WorkbenchRouteChildren,
+)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  WorkbenchRoute: WorkbenchRouteWithChildren,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
