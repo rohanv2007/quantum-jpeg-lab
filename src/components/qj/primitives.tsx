@@ -93,7 +93,7 @@ export function PixelCanvas({ img, className, grid, zoom = 1, label }: { img: Im
     const d = ctx.createImageData(img.size, img.size);
     const rgb = img.channels.length === 3;
     for (let i = 0; i < img.size * img.size; i++) {
-      const r = img.channels[0][i], g = rgb ? img.channels[1][i] : r, b = rgb ? img.channels[2][i] : r;
+      const ch = img.channels as Float32Array[]; const r = ch[0]![i]!, g = rgb ? ch[1]![i]! : r, b = rgb ? ch[2]![i]! : r;
       d.data[i * 4] = r * 255; d.data[i * 4 + 1] = g * 255; d.data[i * 4 + 2] = b * 255; d.data[i * 4 + 3] = 255;
     }
     ctx.putImageData(d, 0, 0);
@@ -123,7 +123,7 @@ export function Reveal({ children, className, delay = 0 }: { children: ReactNode
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
-    const io = new IntersectionObserver(([e]) => e.isIntersecting && (setV(true), io.disconnect()), { threshold: 0.12 });
+    const io = new IntersectionObserver(([e]) => e?.isIntersecting && (setV(true), io.disconnect()), { threshold: 0.12 });
     io.observe(el);
     return () => io.disconnect();
   }, []);

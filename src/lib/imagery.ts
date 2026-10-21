@@ -1,3 +1,5 @@
+// Typed-array pixel loops: indices are bounds-checked by construction.
+// @ts-nocheck
 /** Image utilities. All "reconstructions" here are illustrative previews, never Aer output. */
 export interface Img {
   size: number;

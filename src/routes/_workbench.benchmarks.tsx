@@ -29,8 +29,8 @@ interface Row {
   eps: number;
   ordering: Ordering;
   chi: Chi;
-  exact?: { fidelity: number; cnots: number };
-  mps?: { fidelity: number; cnots: number };
+  exact?: { fidelity: number; cnots: number } | undefined;
+  mps?: { fidelity: number; cnots: number } | undefined;
 }
 
 const ALL: Row[] = [];
