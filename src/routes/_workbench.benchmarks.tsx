@@ -82,7 +82,7 @@ function Benchmarks() {
     measured.forEach((r) => {
       const cfg = `${r.qubits}q · εcx ${fmtEps(r.eps)}`;
       if (!exactSeen.has(cfg)) { exactSeen.add(cfg); ex.push({ x: r.exact!.cnots, y: r.exact!.fidelity, label: `Exact · ${cfg}`, cfg }); }
-      mp.push({ x: r.mps!.cnots, y: r.mps!.fidelity, label: `MPS χ=${r.chi} · ${orderingLabel(r.ordering)} · ${cfg}${r.local ? " · tested" : ""}`, cfg });
+      if (r.mps!.cnots > 0) mp.push({ x: r.mps!.cnots, y: r.mps!.fidelity, label: `MPS χ=${r.chi} · ${orderingLabel(r.ordering)} · ${cfg}${r.local ? " · tested" : ""}`, cfg });
     });
     return { ex, mp };
   }, [measured]);
