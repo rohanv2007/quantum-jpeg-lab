@@ -3,7 +3,6 @@ import { CheckCircle2, ImageIcon, Loader2, Play, Upload } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Progress } from "@/components/ui/progress";
 import { PixelCanvas } from "@/components/qj/primitives";
 import { fmtEps, orderingLabel, type Chi, type Ordering } from "@/lib/data";
 import { imageFromFile, sampleImage, type Img } from "@/lib/imagery";
@@ -78,7 +77,7 @@ export function RunTestDialog({ target, onClose }: { target: TestTarget | null; 
                 </li>
               ))}
             </ol>
-            {stage >= 0 && <Progress value={(Math.min(stage, STAGES.length) / STAGES.length) * 100} className="h-1.5" />}
+            {stage >= 0 && <div className="h-1.5 overflow-hidden rounded-full bg-muted"><div className="h-full bg-primary transition-all" style={{ width: `${(Math.min(stage, STAGES.length) / STAGES.length) * 100}%` }} /></div>}
 
             {result && (
               <div className="grid grid-cols-2 gap-2 rounded-xl border bg-muted/40 p-3 font-mono text-xs">
