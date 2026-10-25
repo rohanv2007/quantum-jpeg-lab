@@ -1,7 +1,9 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import { CartesianGrid, ResponsiveContainer, Scatter, ScatterChart, Tooltip, XAxis, YAxis, ZAxis } from "recharts";
-import { FileText, GitCompare } from "lucide-react";
+import { FileText, GitCompare, Play } from "lucide-react";
+import { RunTestDialog, type TestTarget } from "@/components/qj/run-test-dialog";
+import { useLocalResults } from "@/lib/local-bench";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -31,6 +33,7 @@ interface Row {
   chi: Chi;
   exact?: { fidelity: number; cnots: number } | undefined;
   mps?: { fidelity: number; cnots: number } | undefined;
+  local?: { image: string; createdAt: string };
 }
 
 const ALL: Row[] = [];
@@ -63,10 +66,13 @@ function Benchmarks() {
   const [sel, setSel] = useState<string[]>([]);
   const [compare, setCompare] = useState(false);
   const [prov, setProv] = useState<Row | null>(null);
+  const [test, setTest] = useState<TestTarget | null>(null);
+  const localRes = useLocalResults();
+  const allRows = useMemo(() => ALL.map((r) => { const l = !r.mps ? localRes[r.key] : undefined; return l ? { ...r, exact: l.exact, mps: l.mps, local: { image: l.image, createdAt: l.createdAt } } : r; }), [localRes]);
 
   const rows = useMemo(
-    () => ALL.filter((r) => (size === "all" || String(r.qubits) === size) && (eps === "all" || String(r.eps) === eps) && (ord === "all" || r.ordering === ord) && (chi === "all" || String(r.chi) === chi) && (!onlyMeasured || r.mps)),
-    [size, eps, ord, chi, onlyMeasured],
+    () => allRows.filter((r) => (size === "all" || String(r.qubits) === size) && (eps === "all" || String(r.eps) === eps) && (ord === "all" || r.ordering === ord) && (chi === "all" || String(r.chi) === chi) && (!onlyMeasured || r.mps)),
+    [allRows, size, eps, ord, chi, onlyMeasured],
   );
   const measured = rows.filter((r) => r.mps);
 
@@ -76,12 +82,12 @@ function Benchmarks() {
     measured.forEach((r) => {
       const cfg = `${r.qubits}q · εcx ${fmtEps(r.eps)}`;
       if (!exactSeen.has(cfg)) { exactSeen.add(cfg); ex.push({ x: r.exact!.cnots, y: r.exact!.fidelity, label: `Exact · ${cfg}`, cfg }); }
-      mp.push({ x: r.mps!.cnots, y: r.mps!.fidelity, label: `MPS χ=${r.chi} · ${cfg}`, cfg });
+      mp.push({ x: r.mps!.cnots, y: r.mps!.fidelity, label: `MPS χ=${r.chi} · ${orderingLabel(r.ordering)} · ${cfg}${r.local ? " · tested" : ""}`, cfg });
     });
     return { ex, mp };
   }, [measured]);
 
-  const selected = ALL.filter((r) => sel.includes(r.key));
+  const selected = allRows.filter((r) => sel.includes(r.key));
 
   return (
     <div className="mx-auto max-w-7xl space-y-5">
@@ -119,7 +125,7 @@ function Benchmarks() {
                     <td className="px-3 py-2 font-mono">{r.exact ? r.exact.cnots : "—"}</td>
                     <td className="px-3 py-2 font-mono font-medium text-primary">{r.mps ? r.mps.fidelity.toFixed(4) : <span className="font-normal text-warning">Pending</span>}</td>
                     <td className="px-3 py-2 font-mono">{r.mps ? r.mps.cnots : "—"}</td>
-                    <td className="px-3 py-2">{r.mps ? <Tag tone="measured">Measured</Tag> : <Tag tone="pending">Pending</Tag>}</td>
+                    <td className="px-3 py-2">{r.local ? <Tag tone="cyan">Tested</Tag> : r.mps ? <Tag tone="measured">Measured</Tag> : <Button size="sm" variant="outline" className="h-6 gap-1 px-2 text-[11px]" onClick={() => setTest(r)}><Play className="h-3 w-3" /> Run test</Button>}</td>
                     <td className="px-3 py-2"><button aria-label="Provenance" onClick={() => setProv(r)} className="text-muted-foreground hover:text-foreground"><FileText className="h-4 w-4" /></button></td>
                   </tr>
                 ))}
@@ -153,8 +159,7 @@ function Benchmarks() {
                           <div className="rounded-lg border bg-popover p-3 text-xs shadow-md">
                             <p className="font-medium">{p.label}</p>
                             <p className="mt-1 font-mono">F = {p.y.toFixed(4)} · {p.x} CNOTs</p>
-                            <p className="mt-1 text-muted-foreground">Hilbert · camera · basis rz,sx,x,cx · opt 1</p>
-                            <p className="text-muted-foreground">Earlier sandbox run · Qiskit 2.6</p>
+                            <p className="mt-1 text-muted-foreground">basis rz,sx,x,cx · opt 1</p>
                           </div>
                         );
                       }}
@@ -180,16 +185,17 @@ function Benchmarks() {
         <SheetContent className="w-[420px] sm:max-w-[420px]">
           <SheetHeader>
             <SheetTitle>Provenance</SheetTitle>
-            <SheetDescription>{prov?.mps ? "Preliminary measured record" : "Pending — benchmark not run"}</SheetDescription>
+            <SheetDescription>{prov?.local ? "Test run in your browser" : prov?.mps ? "Preliminary measured record" : "Pending — benchmark not run"}</SheetDescription>
           </SheetHeader>
           {prov && (
             <dl className="mt-6 space-y-3 px-4 text-sm">
               {[
-                ["Status", prov.mps ? "Measured · earlier sandbox run" : "Pending"],
+                ["Status", prov.local ? `Tested · ${new Date(prov.local.createdAt).toLocaleString()}` : prov.mps ? "Measured · earlier sandbox run" : "Pending"],
+                ...(prov.local ? [["Test image", prov.local.image]] : []),
                 ["Qiskit version", ENV.qiskit],
                 ["Aer version", ENV.aer],
                 ["Simulator", ENV.method],
-                ["Image", ENV.image],
+                ["Image", prov.local ? prov.local.image : ENV.image],
                 ["Resolution", prov.qubits === 10 ? "32×32 · 10 qubits" : "16×16 · 8 qubits"],
                 ["Ordering", orderingLabel(prov.ordering)],
                 ["Bond dimension", `χ=${prov.chi}`],
@@ -204,6 +210,8 @@ function Benchmarks() {
           )}
         </SheetContent>
       </Sheet>
+
+      <RunTestDialog target={test} onClose={() => setTest(null)} />
 
       <Dialog open={compare} onOpenChange={setCompare}>
         <DialogContent className="max-w-3xl">
