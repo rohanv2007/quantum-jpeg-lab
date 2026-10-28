@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { Info } from "lucide-react";
+import { CheckCircle2, Clock, FlaskConical, ImageOff, Info, Monitor, XCircle } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import type { Img } from "@/lib/imagery";
@@ -37,18 +37,80 @@ export function InfoTip({ children, label = "More information" }: { children: Re
   );
 }
 
-const STATUS: Record<RunStatus, string> = {
-  complete: "bg-success-soft text-success",
-  running: "bg-primary-soft text-primary",
-  pending: "bg-warning-soft text-warning",
-  failed: "bg-destructive/10 text-destructive",
+const STATUS: Record<RunStatus, { cls: string; label: string; Icon: typeof CheckCircle2 }> = {
+  complete: { cls: "bg-success-soft text-success", label: "Complete", Icon: CheckCircle2 },
+  pending: { cls: "bg-warning-soft text-warning", label: "Pending", Icon: Clock },
+  failed: { cls: "bg-destructive/10 text-destructive", label: "Failed", Icon: XCircle },
 };
 export function StatusPill({ status }: { status: RunStatus }) {
+  const s = STATUS[status] ?? STATUS.pending;
   return (
-    <span className={cn("inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-medium capitalize", STATUS[status])}>
-      <span className={cn("h-1.5 w-1.5 rounded-full bg-current", status === "running" && "animate-pulse")} />
-      {status}
+    <span className={cn("inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium", s.cls)}>
+      <s.Icon className="h-3 w-3" aria-hidden />
+      {s.label}
     </span>
+  );
+}
+
+export function SourceBadge({ source }: { source: "benchmark" | "ui-preview" }) {
+  return source === "benchmark" ? (
+    <Tag tone="measured"><FlaskConical className="h-3 w-3" aria-hidden /> Benchmark</Tag>
+  ) : (
+    <Tag tone="muted"><Monitor className="h-3 w-3" aria-hidden /> UI preview</Tag>
+  );
+}
+
+/** Real reconstruction PNG from the data folder, or an honest empty state. */
+export function RecordImage({ src, label, grid, zoom = 1, className, emptyText = "Reconstruction image not provided yet" }: { src?: string | null; label: string; grid?: boolean; zoom?: number; className?: string; emptyText?: string }) {
+  const [failed, setFailed] = useState(false);
+  useEffect(() => setFailed(false), [src]);
+  if (!src || failed)
+    return (
+      <div className={cn("flex aspect-square flex-col items-center justify-center rounded-lg border border-dashed bg-muted/40 p-3 text-center", className)} role="img" aria-label={`${label}: ${emptyText}`}>
+        <ImageOff className="h-5 w-5 text-muted-foreground/70" aria-hidden />
+        <p className="mt-2 text-[11px] leading-snug text-muted-foreground">{emptyText}</p>
+      </div>
+    );
+  return (
+    <div className={cn("relative aspect-square overflow-hidden rounded-lg bg-muted", className)}>
+      <div className="h-full w-full transition-transform duration-300" style={{ transform: `scale(${zoom})` }}>
+        <img src={src} alt={label} onError={() => setFailed(true)} className="pixelated h-full w-full object-cover" />
+        {grid && <div className="pointer-events-none absolute inset-0" style={{ backgroundImage: `linear-gradient(to right, color-mix(in oklab, var(--color-cyan) 45%, transparent) 1px, transparent 1px), linear-gradient(to bottom, color-mix(in oklab, var(--color-cyan) 45%, transparent) 1px, transparent 1px)`, backgroundSize: "3.125% 3.125%" }} />}
+      </div>
+    </div>
+  );
+}
+
+/** Chart wrapper with an accessible "View as table" alternative. */
+export function ChartCard({ title, desc, tag, chartLabel, table, children, className }: { title: string; desc?: ReactNode; tag?: ReactNode; chartLabel: string; table: { head: string[]; rows: (string | number)[][] }; children: ReactNode; className?: string }) {
+  const [asTable, setAsTable] = useState(false);
+  return (
+    <section className={cn("rounded-2xl border bg-card p-5", className)}>
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div><h3 className="text-sm font-semibold">{title}</h3>{desc && <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">{desc}</p>}</div>
+        <div className="flex items-center gap-2">{tag}<button onClick={() => setAsTable((v) => !v)} className="rounded-md border px-2 py-0.5 text-[11px] text-muted-foreground hover:text-foreground" aria-pressed={asTable}>{asTable ? "View as chart" : "View as table"}</button></div>
+      </div>
+      <div className="mt-3">
+        {asTable ? (
+          <div className="max-h-80 overflow-auto">
+            <table className="w-full text-xs"><thead className="sticky top-0 bg-muted text-muted-foreground"><tr>{table.head.map((h) => <th key={h} className="px-2 py-1.5 text-left font-medium">{h}</th>)}</tr></thead>
+              <tbody>{table.rows.map((r, i) => <tr key={i} className="border-t">{r.map((c, j) => <td key={j} className="px-2 py-1.5 font-mono">{c}</td>)}</tr>)}{!table.rows.length && <tr><td colSpan={table.head.length} className="py-6 text-center text-muted-foreground">No measured data yet.</td></tr>}</tbody>
+            </table>
+          </div>
+        ) : (
+          <div role="img" aria-label={chartLabel}>{children}</div>
+        )}
+      </div>
+    </section>
+  );
+}
+
+export function ShotsNote({ className }: { className?: string }) {
+  return (
+    <div className={cn("rounded-xl border border-dashed bg-muted/30 p-3 text-[11px] leading-relaxed text-muted-foreground", className)}>
+      <p className="font-medium text-foreground">What can be measured on hardware?</p>
+      <p className="mt-1">State fidelity ⟨ψ|ρ|ψ⟩ cannot be measured directly on hardware without tomography; classical fidelity is what you would estimate from shots. Reading out an N-pixel image needs on the order of N/ε² shots.</p>
+    </div>
   );
 }
 
