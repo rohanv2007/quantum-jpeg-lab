@@ -1,77 +1,91 @@
-import { useSyncExternalStore } from "react";
-import { DEFAULT_CONFIG, DEFAULT_NOISE, type SimConfig } from "./data";
+import { useMemo, useSyncExternalStore } from "react";
+import { DEFAULT_CONFIG, DEFAULT_NOISE, type Chi, type SimConfig } from "./data";
+import { isChi, useResults, type RecordSource, type RecordStatus, type ResultRecord } from "./results";
 
-export type RunStatus = "complete" | "running" | "pending" | "failed";
-export type RunKind = "benchmark" | "illustrative" | "saved";
+export type RunStatus = RecordStatus;
 
+/** A run is either a benchmark record from results.json (BR-) or a saved UI config (UI-). */
 export interface Run {
   id: string;
   name: string;
   config: SimConfig;
   status: RunStatus;
-  kind: RunKind;
+  source: RecordSource;
   createdAt: string;
   note?: string;
+  record?: ResultRecord;
 }
 
-const KEY = "qjpeg.runs.v1";
+const KEY = "qjpeg.saved.v2";
 
-const cfg = (p: Partial<SimConfig> & { eps?: number }): SimConfig => ({
-  ...DEFAULT_CONFIG,
-  ...p,
-  noise: { ...DEFAULT_NOISE, epsCx: p.eps ?? DEFAULT_NOISE.epsCx },
-});
+export function configFromRecord(r: ResultRecord): SimConfig {
+  return {
+    ...DEFAULT_CONFIG,
+    source: r.image === "camera" ? "camera" : "upload",
+    uploadName: r.image === "camera" ? undefined : r.image,
+    mode: r.mode,
+    resolution: r.qubits === 8 ? 16 : 32,
+    ordering: r.ordering,
+    chi: (isChi(r.chi) ? r.chi : 2) as Chi,
+    noise: { ...DEFAULT_NOISE, epsCx: r.eps_cx },
+  };
+}
 
-const SEED: Run[] = [
-  { id: "BR-1003", name: "Camera 32×32 · χ=2 · εcx 0.3%", config: cfg({ chi: 2, eps: 0.003 }), status: "complete", kind: "benchmark", createdAt: "2026-10-14T09:12:00Z" },
-  { id: "BR-1004", name: "Camera 32×32 · χ=4 · εcx 0.8%", config: cfg({ chi: 4, eps: 0.008 }), status: "complete", kind: "benchmark", createdAt: "2026-10-14T09:40:00Z" },
-  { id: "BR-1007", name: "Camera 16×16 · χ=8 · εcx 0.3%", config: cfg({ chi: 8, eps: 0.003, resolution: 16 }), status: "complete", kind: "benchmark", createdAt: "2026-10-14T10:05:00Z" },
-  { id: "UI-2011", name: "Camera 32×32 · Z-order · χ=4", config: cfg({ chi: 4, ordering: "z-order" }), status: "pending", kind: "saved", createdAt: "2026-10-18T14:22:00Z", note: "Pending — benchmark not run" },
-  { id: "UI-2014", name: "Camera 16×16 · χ=1 · εcx 1.5%", config: cfg({ chi: 1, eps: 0.015, resolution: 16 }), status: "failed", kind: "illustrative", createdAt: "2026-10-19T08:03:00Z", note: "Preview aborted: reset during transpilation stage." },
-  { id: "UI-2019", name: "Camera 32×32 · Row-major · χ=2", config: cfg({ chi: 2, ordering: "row-major" }), status: "running", kind: "saved", createdAt: "2026-10-20T16:48:00Z", note: "Queued for the benchmark runner (run_all.py, not yet implemented)." },
-];
+const runName = (c: SimConfig, image: string) =>
+  `${image} ${c.resolution}×${c.resolution} · χ=${c.chi} · ${c.noise.epsCx === 0 ? "noiseless" : `εcx ${+(c.noise.epsCx * 100).toFixed(2)}%`}`;
 
-let runs: Run[] = SEED;
+let saved: Run[] = [];
 let loaded = false;
-const listeners = new Set<() => void>();
-
+const ls = new Set<() => void>();
+const EMPTY: Run[] = [];
 function load() {
   if (loaded || typeof window === "undefined") return;
   loaded = true;
-  try {
-    const raw = localStorage.getItem(KEY);
-    if (raw) runs = JSON.parse(raw);
-  } catch {
-    /* ignore */
-  }
+  try { saved = (JSON.parse(localStorage.getItem(KEY) || "[]") as Run[]).filter((r) => r.status === "pending"); } catch { /* ignore */ }
 }
 function emit() {
-  try { localStorage.setItem(KEY, JSON.stringify(runs)); } catch { /* ignore */ }
-  listeners.forEach((l) => l());
+  try { localStorage.setItem(KEY, JSON.stringify(saved)); } catch { /* ignore */ }
+  ls.forEach((l) => l());
 }
 
-export function addRun(r: Omit<Run, "id" | "createdAt">) {
+/** Save a configuration as pending (no values are attached). */
+export function savePendingConfig(config: SimConfig) {
   load();
-  const id = `UI-${2020 + runs.filter((x) => x.id.startsWith("UI")).length}`;
-  const run: Run = { ...r, id, createdAt: new Date().toISOString() };
-  runs = [run, ...runs];
+  const image = config.source === "camera" ? "camera" : config.uploadName ?? "upload";
+  const dup = saved.find((r) => JSON.stringify(r.config) === JSON.stringify(config));
+  if (dup) return dup;
+  const nextId = Math.max(2000, ...saved.map((r) => Number(r.id.slice(3)) || 0)) + 1;
+  const run: Run = { id: `UI-${nextId}`, name: runName(config, image), config, status: "pending", source: "ui-preview", createdAt: new Date().toISOString(), note: "Pending — benchmark not run" };
+  saved = [run, ...saved];
   emit();
   return run;
 }
 
-export function useRuns() {
-  return useSyncExternalStore(
-    (l) => {
-      load();
-      listeners.add(l);
-      l();
-      return () => listeners.delete(l);
-    },
-    () => runs,
-    () => SEED,
-  );
+export function removeSaved(id: string) {
+  load();
+  saved = saved.filter((r) => r.id !== id);
+  emit();
+}
+
+function useSaved() {
+  return useSyncExternalStore((l) => { load(); ls.add(l); l(); return () => ls.delete(l); }, () => saved, () => EMPTY);
+}
+
+/** All runs, newest first. */
+export function useRuns(): { runs: Run[]; loading: boolean } {
+  const res = useResults();
+  const s = useSaved();
+  const runs = useMemo(() => {
+    const fromData: Run[] = res.records.map((r) => {
+      const config = configFromRecord(r);
+      return { id: r.id, name: runName(config, r.image), config, status: r.status, source: r.source, createdAt: r.timestamp ?? "", note: r.failure_reason ?? undefined, record: r };
+    });
+    return [...fromData, ...s].sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
+  }, [res.records, s]);
+  return { runs, loading: res.status === "loading" };
 }
 
 export function fmtDate(iso: string) {
+  if (!iso) return "Not recorded";
   return new Date(iso).toLocaleString("en-GB", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit", timeZone: "UTC" }) + " UTC";
 }
