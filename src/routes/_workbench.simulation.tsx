@@ -8,10 +8,13 @@ import { Label } from "@/components/ui/label";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { InfoTip, MetricValue, PixelCanvas, ProvenanceNote, Tag } from "@/components/qj/primitives";
-import { CHIS, NOISE_PRESETS, ORDERINGS, qubitsFor, resolveMetrics, fmtEps, orderingLabel, type SimConfig, type ResolvedMetrics, type Chi } from "@/lib/data";
-import { difference, illustrate, imageFromFile, sampleImage, type Img } from "@/lib/imagery";
+import { CHIS, NOISE_PRESETS, ORDERINGS, qubitsFor, fmtEps, orderingLabel, matchesRecordedSettings, type SimConfig, type Chi } from "@/lib/data";
+import { imageFromFile, type Img } from "@/lib/imagery";
+import { entropyFromCut, fromRecord, metricsFor, useResults, type Metrics } from "@/lib/results";
+import { RecordImage, ShotsNote } from "@/components/qj/primitives";
+import { Bar, BarChart, CartesianGrid, ResponsiveContainer, XAxis, YAxis } from "recharts";
 import { takeDraftConfig, loadDefaults } from "@/lib/draft";
-import { addRun } from "@/lib/runs-store";
+import { savePendingConfig } from "@/lib/runs-store";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/_workbench/simulation")({
@@ -29,7 +32,7 @@ export const Route = createFileRoute("/_workbench/simulation")({
 const STAGES = ["Preprocessing", "State preparation", "Transpilation", "Noise simulation", "Reconstruction", "Scoring"];
 
 type Phase = "idle" | "running" | "done" | "error";
-interface Result { config: SimConfig; original: Img; exact: Img; mps: Img; metrics: ResolvedMetrics }
+interface Result { config: SimConfig; upload: Img | null; metrics: Metrics; savedId?: string }
 
 function Seg<T extends string | number>({ value, options, onChange, label }: { value: T; options: { value: T; label: string }[]; onChange: (v: T) => void; label: string }) {
   return (
@@ -78,8 +81,10 @@ function Workbench() {
 
   const set = <K extends keyof SimConfig>(k: K, v: SimConfig[K]) => setCfg((c) => ({ ...c, [k]: v }));
   const setNoise = (k: keyof SimConfig["noise"], v: number) => setCfg((c) => ({ ...c, noise: { ...c.noise, [k]: v } }));
-  const live = useMemo(() => resolveMetrics(cfg), [cfg]);
-  const preview = useMemo(() => (cfg.source === "camera" ? sampleImage(cfg.resolution, cfg.mode === "rgb") : null), [cfg.source, cfg.resolution, cfg.mode]);
+  const results = useResults();
+  const resolve = (c: SimConfig) => (matchesRecordedSettings(c) ? metricsFor(results.records, c) : fromRecord());
+  const live = useMemo(() => resolve(cfg), [cfg, results.records]);
+  const [tab, setTab] = useState<"compare" | "entangle">("compare");
 
   const reset = () => {
     timers.current.forEach(clearTimeout);
@@ -98,44 +103,25 @@ function Workbench() {
       setError("No image selected. Drop a PNG or JPEG into the upload area, or switch to the camera sample.");
       return;
     }
-    let original: Img;
+    let upload: Img | null = null;
     try {
-      original = file && cfg.source === "upload" ? await imageFromFile(file, cfg.resolution, cfg.mode === "rgb") : sampleImage(cfg.resolution, cfg.mode === "rgb");
+      if (file && cfg.source === "upload") upload = await imageFromFile(file, cfg.resolution, cfg.mode === "rgb");
     } catch (e) {
       setPhase("error");
       setError((e as Error).message);
       return;
     }
     const snap = structuredClone(cfg);
-    const m = resolveMetrics(snap);
-    // Illustrative visuals: use measured fidelity when present, otherwise a heuristic.
-    const eps = snap.noise.epsCx, q = qubitsFor(snap.resolution);
-    const exF = m.exactNoisyF.measured ? m.exactNoisyF.value : Math.exp(-eps * (q === 10 ? 1013 : 247) * 1.6);
-    const mpsF = m.mpsNoisyF.measured ? m.mpsNoisyF.value : Math.min(0.99, ({ 1: 0.83, 2: 0.95, 4: 0.976, 8: 0.995 } as const)[snap.chi] * Math.exp(-eps * snap.chi * snap.chi * 6));
-    const res: Result = {
-      config: snap,
-      original,
-      exact: illustrate(original, { fidelity: Math.max(exF, 0.04), blockiness: 1, seed: 11 }),
-      mps: illustrate(original, { fidelity: mpsF, blockiness: ({ 1: 8, 2: 4, 4: 2, 8: 1 } as const)[snap.chi], seed: 7 }),
-      metrics: m,
-    };
+    const m = resolve(snap);
     setPhase("running");
     setStage(0);
-    STAGES.forEach((_, i) => {
-      timers.current.push(window.setTimeout(() => setStage(i + 1), 520 * (i + 1)));
-    });
+    STAGES.forEach((_, i) => timers.current.push(window.setTimeout(() => setStage(i + 1), 220 * (i + 1))));
     timers.current.push(
       window.setTimeout(() => {
-        setResult(res);
+        const savedId = m.record ? undefined : savePendingConfig(snap).id;
+        setResult({ config: snap, upload, metrics: m, savedId });
         setPhase("done");
-        addRun({
-          name: `${snap.source === "camera" ? "Camera" : snap.uploadName ?? "Upload"} ${snap.resolution}×${snap.resolution} · ${orderingLabel(snap.ordering)} · χ=${snap.chi}`,
-          config: snap,
-          status: m.noisyMatch ? "complete" : "pending",
-          kind: m.noisyMatch ? "benchmark" : "illustrative",
-          note: m.noisyMatch ? "Matched preliminary sandbox record." : "Pending — benchmark not run. Visuals are illustrative.",
-        });
-      }, 520 * STAGES.length + 250),
+      }, 220 * STAGES.length + 150),
     );
   };
 
@@ -246,15 +232,21 @@ function Workbench() {
 
         <Button className="w-full gap-2" onClick={run} disabled={phase === "running"}>
           {phase === "running" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
-          {phase === "running" ? "Running…" : "Run simulation"}
+          {phase === "running" ? "Loading…" : "Load result"}
         </Button>
         <p className="text-center text-[11px] text-muted-foreground">
-          {live.noisyMatch ? <span className="text-success">Matches a preliminary measured record</span> : "No measured record for this configuration"}
+          {results.status === "loading" ? "Loading results…" : live.record ? <span className="text-success">A precomputed result exists for this configuration</span> : "No precomputed result for this configuration yet"}
         </p>
       </aside>
 
       {/* Canvas */}
       <section className="min-w-0 space-y-4">
+        <div className="flex rounded-lg bg-muted p-1 w-fit" role="tablist" aria-label="Workbench view">
+          {([["compare", "Comparator"], ["entangle", "Entanglement"]] as const).map(([v, l]) => (
+            <button key={v} role="tab" aria-selected={tab === v} onClick={() => setTab(v)} className={cn("rounded-md px-3 py-1 text-xs font-medium", tab === v ? "bg-card shadow-sm" : "text-muted-foreground hover:text-foreground")}>{l}</button>
+          ))}
+        </div>
+        {tab === "compare" ? (<>
         <div className="flex flex-wrap items-center gap-3 rounded-2xl border bg-card px-4 py-2.5">
           <div className="flex rounded-lg bg-muted p-1" role="tablist" aria-label="Comparison mode">
             {([["side", "Side by side", Columns3], ["split", "Split", SplitSquareHorizontal], ["diff", "Difference", Diff]] as const).map(([v, l, I]) => (
@@ -275,7 +267,7 @@ function Workbench() {
         <div className="rounded-2xl border bg-card p-5">
           <div className="mb-4 flex flex-wrap items-center gap-2">
             <span className="font-mono text-xs text-muted-foreground">{(shown?.config.source ?? cfg.source) === "camera" ? "camera_sample" : imgId} · {(shown?.config.resolution ?? cfg.resolution)}×{shown?.config.resolution ?? cfg.resolution} · {qubitsFor(shown?.config.resolution ?? cfg.resolution)} qubits · {orderingLabel(shown?.config.ordering ?? cfg.ordering)}</span>
-            {phase === "done" && <Tag tone="illustrative" className="ml-auto">Illustrative preview · not an Aer benchmark</Tag>}
+            {phase === "done" && shown?.metrics.record && <Tag tone="measured" className="ml-auto">Replay of precomputed result</Tag>}
           </div>
 
           {phase === "error" ? (
@@ -288,18 +280,21 @@ function Workbench() {
           ) : mode === "side" || !shown ? (
             <div className="grid grid-cols-3 gap-4">
               {(["Original", "Exact loader", "MPS loader"] as const).map((t, i) => {
-                const img = i === 0 ? shown?.original ?? preview : i === 1 ? shown?.exact : shown?.mps;
+                const imgs = shown?.metrics.record?.images;
+                const src = i === 0 ? imgs?.original : i === 1 ? imgs?.exact : imgs?.mps;
                 return (
                   <figure key={t}>
-                    {img ? (
-                      <PixelCanvas img={img} grid={grid} zoom={zoom} label={t} className="animate-in fade-in duration-500" />
-                    ) : phase === "running" ? (
+                    {phase === "running" ? (
                       <div className="relative aspect-square overflow-hidden rounded-lg bg-muted"><div className="progress-shimmer absolute inset-0 bg-gradient-to-r from-transparent via-card/70 to-transparent" /></div>
-                    ) : (
+                    ) : i === 0 && (shown?.upload || (!shown && file)) && shown?.upload ? (
+                      <PixelCanvas img={shown.upload} grid={grid} zoom={zoom} label="Uploaded original" />
+                    ) : !shown ? (
                       <div className="flex aspect-square flex-col items-center justify-center rounded-lg border border-dashed bg-muted/40 text-center">
                         <ImageIcon className="h-5 w-5 text-muted-foreground/60" />
-                        <p className="mt-2 text-xs text-muted-foreground">{i === 0 ? "Upload an image" : "Run to preview"}</p>
+                        <p className="mt-2 text-xs text-muted-foreground">Load a result to view</p>
                       </div>
+                    ) : (
+                      <RecordImage src={src} label={t} grid={grid} zoom={zoom} emptyText={shown.metrics.record ? (i === 0 ? "Original image not provided yet" : "Reconstruction image not provided yet") : "No precomputed result for this configuration yet"} />
                     )}
                     <figcaption className="mt-2.5 flex items-center justify-between text-xs">
                       <span className="font-medium">{t}{i === 2 && <span className="ml-1 font-mono text-muted-foreground">χ={shown?.config.chi ?? cfg.chi}</span>}</span>
@@ -316,25 +311,35 @@ function Workbench() {
           ) : mode === "split" ? (
             <div className="mx-auto max-w-md">
               <div className="mb-3 flex justify-center"><Seg label="Compare against" value={splitTarget} onChange={setSplitTarget} options={[{ value: "exact", label: "Original | Exact" }, { value: "mps", label: "Original | MPS" }]} /></div>
-              <div className="relative">
-                <PixelCanvas img={shown[splitTarget]} grid={grid} zoom={zoom} label="Reconstruction" />
-                <div className="absolute inset-0" style={{ clipPath: `inset(0 ${100 - split}% 0 0)` }}><PixelCanvas img={shown.original} grid={grid} zoom={zoom} label="Original" /></div>
-                <div className="pointer-events-none absolute inset-y-0 w-0.5 bg-cyan" style={{ left: `${split}%` }} />
-              </div>
-              <input type="range" min={0} max={100} value={split} onChange={(e) => setSplit(+e.target.value)} className="mt-3 w-full accent-primary" aria-label="Split position" />
-              <div className="flex justify-between text-xs text-muted-foreground"><span>Original</span><span>{splitTarget === "exact" ? "Exact loader" : `MPS χ=${shown.config.chi}`}</span></div>
+              {shown.metrics.record?.images?.original && shown.metrics.record.images[splitTarget] ? (
+                <div className="relative">
+                  <RecordImage src={shown.metrics.record.images[splitTarget]} label="Reconstruction" grid={grid} zoom={zoom} />
+                  <div className="absolute inset-0" style={{ clipPath: `inset(0 ${100 - split}% 0 0)` }}><RecordImage src={shown.metrics.record.images.original} label="Original" grid={grid} zoom={zoom} /></div>
+                  <div className="pointer-events-none absolute inset-y-0 w-0.5 bg-cyan" style={{ left: `${split}%` }} />
+                  <input type="range" min={0} max={100} value={split} onChange={(e) => setSplit(+e.target.value)} className="mt-3 w-full accent-primary" aria-label="Split position" />
+                </div>
+              ) : <RecordImage label="Split view" emptyText="Split view needs both original and reconstruction images in the data folder." />}
             </div>
           ) : (
             <div className="grid grid-cols-2 gap-4">
-              {(["exact", "mps"] as const).map((k) => (
-                <figure key={k}>
-                  <PixelCanvas img={difference(shown.original, shown[k])} grid={grid} zoom={zoom} label={`Difference ${k}`} />
-                  <figcaption className="mt-2 text-xs"><span className="font-medium">|Original − {k === "exact" ? "Exact" : "MPS"}|</span> <span className="text-muted-foreground">· brighter = larger deviation</span></figcaption>
-                </figure>
-              ))}
+              {(["exact", "mps"] as const).map((k) => {
+                const im = shown.metrics.record?.images;
+                return (
+                  <figure key={k}>
+                    {im?.original && im[k] ? (
+                      <div className="relative aspect-square overflow-hidden rounded-lg bg-muted">
+                        <img src={im.original} alt="" className="pixelated absolute inset-0 h-full w-full" />
+                        <img src={im[k]} alt={`Difference ${k}`} className="pixelated absolute inset-0 h-full w-full mix-blend-difference" />
+                      </div>
+                    ) : <RecordImage label={`Difference ${k}`} emptyText="Difference needs original and reconstruction images." />}
+                    <figcaption className="mt-2 text-xs"><span className="font-medium">|Original − {k === "exact" ? "Exact" : "MPS"}|</span> <span className="text-muted-foreground">· brighter = larger deviation</span></figcaption>
+                  </figure>
+                );
+              })}
             </div>
           )}
         </div>
+        </>) : <EntanglementView spectrum={(shown?.metrics.record ?? live.record ?? live.noiseless)?.spectra?.[(shown?.config ?? cfg).ordering]} ordering={orderingLabel((shown?.config ?? cfg).ordering)} />}
 
         {/* Pipeline */}
         <div className="rounded-2xl border bg-card p-5">
@@ -359,16 +364,16 @@ function Workbench() {
               );
             })}
           </ol>
-          {phase === "done" && shown && !shown.metrics.noisyMatch && (
-            <div className="mt-4 flex items-center justify-between rounded-xl bg-warning-soft px-4 py-3">
-              <div><p className="text-sm font-medium text-warning">Pending — benchmark not run</p><p className="text-xs text-muted-foreground">No measured record matches this configuration. Images above are illustrative only.</p></div>
-              <Button size="sm" variant="outline" className="gap-1.5" onClick={() => toast.success("Configuration saved", { description: "Added to Run history as Pending." })}><Save className="h-3.5 w-3.5" /> Save configuration</Button>
+          {phase === "done" && shown && !shown.metrics.record && (
+            <div className="mt-4 flex flex-wrap items-center justify-between gap-2 rounded-xl bg-warning-soft px-4 py-3">
+              <div><p className="text-sm font-medium text-warning">No precomputed result for this configuration yet</p><p className="text-xs text-muted-foreground">Saved to Run history as Pending ({shown.savedId}). No values or images are shown until a benchmark record exists.</p></div>
+              <Button size="sm" variant="outline" asChild><Link to="/runs">View in history</Link></Button>
             </div>
           )}
-          {phase === "done" && shown?.metrics.noisyMatch && (
-            <div className="mt-4 flex items-center justify-between rounded-xl bg-success-soft px-4 py-3">
-              <div><p className="text-sm font-medium text-success">Matched a preliminary measured record</p><ProvenanceNote className="mt-1" /></div>
-              <Button size="sm" variant="outline" asChild><Link to="/runs">View in history</Link></Button>
+          {phase === "done" && shown?.metrics.record && (
+            <div className="mt-4 flex flex-wrap items-center justify-between gap-2 rounded-xl bg-success-soft px-4 py-3">
+              <div><p className="text-sm font-medium text-success">Replay of precomputed result</p><ProvenanceNote className="mt-1" /></div>
+              <Button size="sm" variant="outline" asChild><Link to="/runs/$runId" params={{ runId: shown.metrics.record.id }}>Open run</Link></Button>
             </div>
           )}
         </div>
@@ -398,11 +403,16 @@ function Workbench() {
         <MetricGroup title="Circuit resources" items={[
           ["Compiled CNOTs · exact", <MetricValue key="a" m={metrics.exactCnots} digits={0} />, "Number of two-qubit CNOT gates after transpiling to the recorded basis and optimization level. More CNOTs mean more exposure to noise."],
           ["Compiled CNOTs · MPS", <MetricValue key="b" m={metrics.mpsCnots} digits={0} />],
+          ["Depth · exact", <MetricValue key="h" m={metrics.exactDepth} digits={0} />],
+          ["Depth · MPS", <MetricValue key="i" m={metrics.mpsDepth} digits={0} />],
+          ["1q gates · MPS", <MetricValue key="j" m={metrics.mpsOneQ} digits={0} />],
+          ["Duration · MPS (ns)", <MetricValue key="k" m={metrics.mpsDuration} digits={0} />],
         ]} />
         <MetricGroup title="State fidelity" tip="Noisy fidelity is ⟨ψ_original|ρ|ψ_original⟩ for both loaders — always scored against the original normalized image state after spatial ordering." items={[
           ["Ideal fidelity · MPS to original", <MetricValue key="c" m={metrics.mpsIdealF} digits={3} />],
           ["Noisy fidelity · exact", <MetricValue key="d" m={metrics.exactNoisyF} />],
           ["Noisy fidelity · MPS", <MetricValue key="e" m={metrics.mpsNoisyF} />],
+          ["Classical (Bhattacharyya) fidelity · MPS", <MetricValue key="l" m={metrics.classicalF} />],
         ]} />
         <MetricGroup title="Image quality" items={[
           ["PSNR", <MetricValue key="f" m={metrics.psnr} />],
@@ -410,8 +420,9 @@ function Workbench() {
         ]} />
         <div className="rounded-2xl border border-dashed bg-card/60 p-4">
           <div className="flex items-center gap-1.5"><p className="text-xs font-semibold">Circuit fidelity vs. contracted MPS</p><InfoTip>A circuit correctness check: does the synthesized circuit prepare its own contracted MPS state? It is not an image-fidelity score.</InfoTip></div>
-          <div className="mt-2 flex items-center justify-between"><Tag>Correctness check</Tag>{metrics.circuitVsMps.measured ? <span className="font-mono text-sm">1.0000000000</span> : <span className="text-sm text-warning">Pending</span>}</div>
+          <div className="mt-2 flex items-center justify-between"><Tag>Correctness check</Tag><MetricValue m={metrics.circuitCheck} digits={6} /></div>
         </div>
+        <ShotsNote />
         {metrics.anyMeasured && <ProvenanceNote className="px-1" />}
       </aside>
     </div>
@@ -440,5 +451,32 @@ function NumField({ label, value, onChange, step = 1, tip }: { label: string; va
       <span className="flex items-center gap-1 text-[11px] text-muted-foreground">{label}{tip && <InfoTip>{tip}</InfoTip>}</span>
       <Input type="number" value={value} step={step} min={0} onChange={(e) => onChange(Number(e.target.value))} className="h-8 font-mono text-xs" />
     </label>
+  );
+}
+
+function EntanglementView({ spectrum, ordering }: { spectrum?: { cuts: number[][]; entropy?: number[] }; ordering: string }) {
+  if (!spectrum?.cuts?.length)
+    return (
+      <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed bg-card px-6 py-24 text-center">
+        <p className="text-sm font-medium">Spectrum not provided yet</p>
+        <p className="mt-1 max-w-sm text-xs text-muted-foreground">Add a <span className="font-mono">spectra</span> field for {ordering} to the matching record in results.json to see singular values and entanglement entropy per bond.</p>
+      </div>
+    );
+  const ent = spectrum.entropy ?? spectrum.cuts.map(entropyFromCut);
+  return (
+    <div className="space-y-4">
+      <div className="rounded-2xl border bg-card p-5">
+        <h3 className="text-sm font-semibold">Entanglement entropy per bond · {ordering}</h3>
+        <div className="mt-3 h-56" role="img" aria-label="Entanglement entropy per bond"><ResponsiveContainer><BarChart data={ent.map((e, i) => ({ bond: i + 1, e }))}><CartesianGrid stroke="var(--color-border)" strokeDasharray="3 3" /><XAxis dataKey="bond" tick={{ fontSize: 10 }} /><YAxis tick={{ fontSize: 10 }} /><Bar dataKey="e" fill="var(--color-primary)" /></BarChart></ResponsiveContainer></div>
+      </div>
+      <div className="grid gap-4 sm:grid-cols-2">
+        {spectrum.cuts.map((sv, i) => (
+          <div key={i} className="rounded-2xl border bg-card p-4">
+            <p className="text-xs font-medium">Cut {i + 1} · singular values</p>
+            <div className="mt-2 h-32" role="img" aria-label={`Singular values at cut ${i + 1}`}><ResponsiveContainer><BarChart data={sv.map((v, k) => ({ k: k + 1, v }))}><XAxis dataKey="k" tick={{ fontSize: 9 }} /><YAxis tick={{ fontSize: 9 }} /><Bar dataKey="v" fill="var(--color-chart-3)" /></BarChart></ResponsiveContainer></div>
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }
