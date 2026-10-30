@@ -1,21 +1,25 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { useMemo } from "react";
-import { Copy, Download } from "lucide-react";
+import { useState } from "react";
+import { Copy, Download, FileJson } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { CircuitDiagram, MetricValue, PixelCanvas, ProvenanceNote, StatusPill, Tag } from "@/components/qj/primitives";
-import { ENV, fmtEps, orderingLabel, qubitsFor, resolveMetrics } from "@/lib/data";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { CircuitDiagram, MetricValue, ProvenanceNote, RecordImage, ShotsNote, SourceBadge, StatusPill } from "@/components/qj/primitives";
+import { CHIS, ENV, fmtEps, orderingLabel, qubitsFor, type Chi } from "@/lib/data";
 import { setDraftConfig } from "@/lib/draft";
-import { illustrate, sampleImage } from "@/lib/imagery";
-import { fmtDate, useRuns } from "@/lib/runs-store";
+import { download, findRecord, fromRecord, metricsFor, reproduceCommand, useResults } from "@/lib/results";
+import { fmtDate, removeSaved, useRuns } from "@/lib/runs-store";
 
 export const Route = createFileRoute("/_workbench/runs/$runId")({
   head: ({ params }) => ({
     meta: [
       { title: `Run ${params.runId} — Quantum JPEG` },
-      { name: "description", content: "Run detail: image comparison, settings, fidelity and resource metrics, noise configuration and provenance." },
+      { name: "description", content: "Run detail: reconstructions, resource and fidelity metrics, noise configuration and reproducible provenance." },
       { property: "og:title", content: `Run ${params.runId} — Quantum JPEG` },
       { property: "og:description", content: "Quantum JPEG run detail." },
+      { property: "og:type", content: "article" },
+      { name: "twitter:card", content: "summary" },
     ],
   }),
   component: RunDetail,
@@ -23,110 +27,106 @@ export const Route = createFileRoute("/_workbench/runs/$runId")({
 
 function RunDetail() {
   const { runId } = Route.useParams();
-  const runs = useRuns();
+  const { runs, loading } = useRuns();
+  const res = useResults();
   const navigate = useNavigate();
   const run = runs.find((r) => r.id === runId);
-  const imgs = useMemo(() => {
-    if (!run) return null;
-    const o = sampleImage(run.config.resolution, run.config.mode === "rgb");
-    const m = resolveMetrics(run.config);
-    return {
-      o,
-      e: illustrate(o, { fidelity: m.exactNoisyF.measured ? Math.max(0.04, m.exactNoisyF.value) : 0.3, blockiness: 1, seed: 4 }),
-      p: illustrate(o, { fidelity: m.mpsNoisyF.measured ? m.mpsNoisyF.value : 0.8, blockiness: ({ 1: 8, 2: 4, 4: 2, 8: 1 } as const)[run.config.chi], seed: 6 }),
-      m,
-    };
-  }, [run]);
+  const [chiView, setChiView] = useState<Chi | null>(null);
 
-  if (!run || !imgs) {
+  if (loading) return <div className="mx-auto max-w-6xl space-y-4"><Skeleton className="h-16" /><Skeleton className="h-80" /></div>;
+  if (!run) {
     return (
       <div className="mx-auto max-w-md py-20 text-center">
-        <p className="text-lg font-semibold">Run not found</p>
-        <p className="mt-1 text-sm text-muted-foreground">No run with ID {runId} exists in this workspace.</p>
+        <p className="font-mono text-xs text-muted-foreground">404</p>
+        <p className="mt-1 text-lg font-semibold">Run not found</p>
+        <p className="mt-1 text-sm text-muted-foreground">No run with ID {runId} exists in results.json or in this browser.</p>
         <Button asChild className="mt-5" variant="outline"><Link to="/runs">Back to run history</Link></Button>
       </div>
     );
   }
-  const c = run.config, m = imgs.m;
-  const isRecord = run.kind === "benchmark";
-
-  const exportCircuit = () => {
-    const q = qubitsFor(c.resolution);
-    const txt = `# Quantum JPEG — prototype export (schematic, not a validated circuit)\n# run ${run.id} · ${q} qubits · ${c.ordering} · chi=${c.chi}\nfrom qiskit import QuantumCircuit, transpile\nfrom qiskit.circuit.library import Isometry\n\nqc = QuantumCircuit(${q})\n# for each site, right to left: qc.append(Isometry(V_site, 0, 0), qubits)\n# transpile(qc, basis_gates=[${c.basis.split(",").map((g) => `"${g.trim()}"`).join(", ")}], optimization_level=${c.optimizationLevel})\n`;
-    const url = URL.createObjectURL(new Blob([txt], { type: "text/x-python" }));
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `${run.id}_circuit.py`;
-    a.click();
-    URL.revokeObjectURL(url);
-    toast.success("Prototype circuit script exported");
-  };
+  const c = run.config;
+  const rec = run.record;
+  const m = rec ? fromRecord(rec, findRecord(res.records, { qubits: rec.qubits, ordering: rec.ordering, chi: rec.chi, eps: 0, image: rec.image })) : metricsFor(res.records, c);
+  const q = qubitsFor(c.resolution);
+  const chiNow = chiView ?? c.chi;
+  // χ slider: precomputed reconstructions for χ=1/2/4/8 (from this record or sibling records)
+  const chiSrc = (k: Chi) => rec?.images?.mps_by_chi?.[String(k)] ?? (rec ? findRecord(res.records, { qubits: rec.qubits, ordering: rec.ordering, chi: k, eps: rec.eps_cx, image: rec.image })?.images?.mps : undefined);
+  const repro = reproduceCommand(rec ?? { image: c.source === "camera" ? "camera" : c.uploadName ?? "upload", qubits: q, ordering: c.ordering, chi: c.chi, eps_cx: c.noise.epsCx, seed: null });
 
   return (
     <div className="mx-auto max-w-6xl space-y-5">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-2"><span className="font-mono text-xs text-muted-foreground">{run.id}</span><StatusPill status={run.status} /><Tag tone={isRecord ? "measured" : "illustrative"}>{isRecord ? "Benchmark record · preliminary" : "Illustrative UI run · not a benchmark"}</Tag></div>
-          <h2 className="mt-2 text-2xl font-semibold tracking-tight">{run.name}</h2>
-          <p className="mt-1 text-xs text-muted-foreground">{fmtDate(run.createdAt)}{run.note && ` · ${run.note}`}</p>
-        </div>
-        <div className="flex gap-2">
-          <Button variant="outline" className="gap-1.5" onClick={() => { setDraftConfig(c); navigate({ to: "/simulation" }); }}><Copy className="h-4 w-4" /> Duplicate configuration</Button>
-          <Button className="gap-1.5" onClick={exportCircuit}><Download className="h-4 w-4" /> Export circuit</Button>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-2"><span className="font-mono text-xs text-muted-foreground">{run.id}</span><StatusPill status={run.status} /><SourceBadge source={run.source} /><span className="text-xs text-muted-foreground">{fmtDate(run.createdAt)}</span></div>
+        <div className="flex flex-wrap gap-2">
+          <Button size="sm" variant="outline" className="gap-1.5" onClick={() => { setDraftConfig(c); navigate({ to: "/simulation" }); }}><Copy className="h-3.5 w-3.5" /> Duplicate configuration</Button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span tabIndex={rec?.qasm_path ? -1 : 0}>
+                <Button size="sm" variant="outline" className="gap-1.5" disabled={!rec?.qasm_path} asChild={!!rec?.qasm_path}>
+                  {rec?.qasm_path ? <a href={rec.qasm_path} download><Download className="h-3.5 w-3.5" /> Export circuit</a> : <><Download className="h-3.5 w-3.5" /> Export circuit</>}
+                </Button>
+              </span>
+            </TooltipTrigger>
+            {!rec?.qasm_path && <TooltipContent>QASM not provided for this run</TooltipContent>}
+          </Tooltip>
+          {run.source === "ui-preview" && <Button size="sm" variant="ghost" onClick={() => { removeSaved(run.id); navigate({ to: "/runs" }); }}>Delete</Button>}
         </div>
       </div>
+      <h2 className="text-xl font-semibold tracking-tight">{run.name}</h2>
+      {run.status === "failed" && rec?.failure_reason && <p className="rounded-xl bg-destructive/10 px-4 py-3 text-sm text-destructive">Failed: {rec.failure_reason}</p>}
+      {!rec && <p className="rounded-xl bg-warning-soft px-4 py-3 text-sm text-warning">Pending — no benchmark record exists for this configuration yet.</p>}
 
-      <div className="grid gap-5 lg:grid-cols-[1fr_340px]">
-        <div className="space-y-5">
-          <section className="rounded-2xl border bg-card p-5">
-            <div className="mb-4 flex items-center justify-between"><h3 className="text-sm font-semibold">Image comparison</h3><Tag tone="illustrative">Illustrative preview · not an Aer benchmark</Tag></div>
+      <div className="grid gap-5 lg:grid-cols-[1.5fr_1fr]">
+        <section className="space-y-5">
+          <div className="rounded-2xl border bg-card p-5">
             <div className="grid grid-cols-3 gap-4">
-              {[["Original", imgs.o], ["Exact loader", imgs.e], [`MPS loader · χ=${c.chi}`, imgs.p]].map(([l, im]) => (
-                <figure key={l as string}><PixelCanvas img={im as never} label={l as string} /><figcaption className="mt-2 text-xs font-medium">{l as string}</figcaption></figure>
+              {([["Original", rec?.images?.original, "Original image not provided yet"], ["Exact loader", rec?.images?.exact, undefined], [`MPS χ=${chiNow}`, chiView ? chiSrc(chiView) : rec?.images?.mps, undefined]] as const).map(([t, src, empty]) => (
+                <figure key={t}><RecordImage src={src} label={t} emptyText={empty} /><figcaption className="mt-2 text-xs font-medium">{t}</figcaption></figure>
               ))}
             </div>
-          </section>
-          <section className="rounded-2xl border bg-card p-5">
-            <div className="mb-3 flex items-center justify-between"><h3 className="text-sm font-semibold">Circuit · sequential isometries</h3><span className="font-mono text-[11px] text-muted-foreground">schematic · {qubitsFor(c.resolution)} qubits</span></div>
-            <CircuitDiagram qubits={qubitsFor(c.resolution)} chi={c.chi} />
-          </section>
-        </div>
+            <div className="mt-4 flex flex-wrap items-center gap-2 border-t pt-4">
+              <span className="text-xs text-muted-foreground">MPS reconstruction χ</span>
+              {CHIS.map((k) => {
+                const has = !!chiSrc(k);
+                return <Button key={k} size="sm" variant={chiNow === k ? "secondary" : "ghost"} className="h-7 font-mono text-xs" disabled={!has && k !== c.chi} title={has ? undefined : "Image not provided yet"} onClick={() => setChiView(k)}>χ={k}</Button>;
+              })}
+            </div>
+          </div>
+          <div className="rounded-2xl border bg-card p-5"><h3 className="mb-3 text-sm font-semibold">Circuit (schematic)</h3><CircuitDiagram qubits={Math.min(q, 6)} /></div>
+        </section>
 
-        <div className="space-y-4">
-          <section className="rounded-2xl border bg-card p-5">
-            <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Metrics</h3>
-            <div className="mt-3 space-y-2.5 text-xs">
-              {[
-                ["CNOTs · exact", <MetricValue key="1" m={m.exactCnots} digits={0} />],
-                ["CNOTs · MPS", <MetricValue key="2" m={m.mpsCnots} digits={0} />],
-                ["Ideal F · MPS", <MetricValue key="3" m={m.mpsIdealF} digits={3} />],
-                ["Noisy F · exact", <MetricValue key="4" m={m.exactNoisyF} />],
-                ["Noisy F · MPS", <MetricValue key="5" m={m.mpsNoisyF} />],
-                ["PSNR", <MetricValue key="6" m={m.psnr} />],
-                ["SSIM", <MetricValue key="7" m={m.ssim} />],
-              ].map(([l, v]) => <div key={l as string} className="flex items-center justify-between"><span className="text-muted-foreground">{l}</span>{v}</div>)}
-            </div>
-            {m.anyMeasured && <ProvenanceNote className="mt-3 border-t pt-3" />}
-          </section>
-          <section className="rounded-2xl border bg-card p-5">
-            <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Settings & noise</h3>
-            <dl className="mt-3 grid grid-cols-2 gap-y-1.5 text-xs">
-              {[
-                ["Image", c.source === "camera" ? "camera_sample" : c.uploadName ?? "upload"],
-                ["Mode", c.mode], ["Resolution", `${c.resolution}×${c.resolution}`], ["Ordering", orderingLabel(c.ordering)], ["χ", c.chi],
-                ["εcx", fmtEps(c.noise.epsCx)], ["T1", `${c.noise.t1} µs`], ["T2", `${c.noise.t2} µs`], ["cx", `${c.noise.cxDuration} ns`], ["1q gate", `${c.noise.oneQDuration} ns`],
-              ].map(([k, v]) => <div key={k as string} className="contents"><dt className="text-muted-foreground">{k}</dt><dd className="text-right font-mono">{v}</dd></div>)}
-            </dl>
-          </section>
-          <section className="rounded-2xl border bg-card p-5">
-            <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Provenance</h3>
-            <dl className="mt-3 grid grid-cols-2 gap-y-1.5 text-xs">
-              {[["Qiskit", ENV.qiskit], ["Aer", "pending"], ["Basis", c.basis], ["Opt. level", c.optimizationLevel], ["Source", isRecord ? "Earlier sandbox run" : "Prototype UI"]].map(([k, v]) => (
-                <div key={k as string} className="contents"><dt className="text-muted-foreground">{k}</dt><dd className="text-right font-mono">{v}</dd></div>
+        <section className="space-y-4">
+          <div className="rounded-2xl border bg-card p-5">
+            <h3 className="text-sm font-semibold">Metrics</h3>
+            <dl className="mt-3 space-y-2.5">
+              {([
+                ["Compiled CNOTs · exact", m.exactCnots, 0], ["Compiled CNOTs · MPS", m.mpsCnots, 0],
+                ["Depth · exact", m.exactDepth, 0], ["Depth · MPS", m.mpsDepth, 0],
+                ["1q gates · exact", m.exactOneQ, 0], ["1q gates · MPS", m.mpsOneQ, 0],
+                ["Duration · exact (ns)", m.exactDuration, 0], ["Duration · MPS (ns)", m.mpsDuration, 0],
+                ["Ideal fidelity · MPS", m.mpsIdealF, 3], ["Noisy fidelity · exact", m.exactNoisyF, 4], ["Noisy fidelity · MPS", m.mpsNoisyF, 4],
+                ["Classical (Bhattacharyya) fidelity", m.classicalF, 4], ["PSNR", m.psnr, 2], ["SSIM", m.ssim, 4], ["Circuit vs contracted MPS", m.circuitCheck, 6],
+              ] as const).map(([k, v, d]) => (
+                <div key={k} className="flex items-center justify-between border-b pb-2 text-xs last:border-0"><dt className="text-muted-foreground">{k}</dt><dd><MetricValue m={v} digits={d} /></dd></div>
               ))}
             </dl>
-          </section>
-        </div>
+          </div>
+          <ShotsNote />
+          <div className="rounded-2xl border bg-card p-5">
+            <h3 className="text-sm font-semibold">Provenance</h3>
+            <dl className="mt-3 grid grid-cols-[120px_1fr] gap-y-2 text-xs">
+              {[["Qiskit", rec?.qiskit_version ?? ENV.qiskit], ["Aer", rec?.aer_version ?? "not recorded"], ["Seed", rec?.seed ?? "not recorded"], ["Git commit", rec?.commit_hash ?? "not recorded"], ["Runner", rec?.runner ?? "run_all.py"], ["Noise", `εcx ${fmtEps(c.noise.epsCx)} · T1 ${c.noise.t1} µs · T2 ${c.noise.t2} µs`], ["Ordering", orderingLabel(c.ordering)], ["Basis", c.basis]].map(([k, v]) => (
+                <div key={String(k)} className="contents"><dt className="text-muted-foreground">{k}</dt><dd className="break-all font-mono">{String(v)}</dd></div>
+              ))}
+            </dl>
+            <pre className="mt-3 overflow-x-auto rounded-lg bg-muted p-2.5 font-mono text-[11px]">{repro}</pre>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <Button size="sm" variant="outline" className="gap-1.5" onClick={() => navigator.clipboard.writeText(repro).then(() => toast.success("Reproduce command copied"))}><Copy className="h-3.5 w-3.5" /> Copy reproduce command</Button>
+              <Button size="sm" variant="outline" className="gap-1.5" onClick={() => download(`${run.id}.json`, JSON.stringify(rec ?? { id: run.id, status: "pending", config: c }, null, 2))}><FileJson className="h-3.5 w-3.5" /> Download JSON</Button>
+            </div>
+            {rec && <ProvenanceNote className="mt-3" />}
+          </div>
+        </section>
       </div>
     </div>
   );
