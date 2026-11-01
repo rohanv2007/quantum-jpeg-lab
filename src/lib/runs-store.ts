@@ -12,8 +12,8 @@ export interface Run {
   status: RunStatus;
   source: RecordSource;
   createdAt: string;
-  note?: string;
-  record?: ResultRecord;
+  note?: string | undefined;
+  record?: ResultRecord | undefined;
 }
 
 const KEY = "qjpeg.saved.v2";
