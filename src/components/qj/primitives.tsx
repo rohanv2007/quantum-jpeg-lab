@@ -61,7 +61,7 @@ export function SourceBadge({ source }: { source: "benchmark" | "ui-preview" }) 
 }
 
 /** Real reconstruction PNG from the data folder, or an honest empty state. */
-export function RecordImage({ src, label, grid, zoom = 1, className, emptyText = "Reconstruction image not provided yet" }: { src?: string | null; label: string; grid?: boolean; zoom?: number; className?: string; emptyText?: string }) {
+export function RecordImage({ src, label, grid, zoom = 1, className, emptyText = "Reconstruction image not provided yet" }: { src?: string | null | undefined; label: string; grid?: boolean | undefined; zoom?: number; className?: string | undefined; emptyText?: string | undefined }) {
   const [failed, setFailed] = useState(false);
   useEffect(() => setFailed(false), [src]);
   if (!src || failed)

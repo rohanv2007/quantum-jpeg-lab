@@ -51,7 +51,7 @@ export const qubitsFor = (r: Resolution) => (r === 16 ? 8 : 10) as 8 | 10;
 
 export interface SimConfig {
   source: "camera" | "upload";
-  uploadName?: string;
+  uploadName?: string | undefined;
   mode: ImageMode;
   resolution: Resolution;
   ordering: Ordering;

@@ -83,7 +83,7 @@ function SettingsPage() {
       <Card title="Dependencies" desc="Versions recorded for the preliminary dataset.">
         <dl className="grid grid-cols-[160px_1fr] gap-y-2 font-mono text-xs">
           <dt className="text-muted-foreground">qiskit</dt><dd>{ENV.qiskit}</dd>
-          <dt className="text-muted-foreground">qiskit-aer</dt><dd className="text-warning">not recorded — pending</dd>
+          <dt className="text-muted-foreground">qiskit-aer</dt><dd>not recorded</dd>
           <dt className="text-muted-foreground">simulator</dt><dd>{ENV.method}</dd>
           <dt className="text-muted-foreground">basis</dt><dd>{ENV.basis}</dd>
           <dt className="text-muted-foreground">benchmark runner</dt><dd className="text-warning">run_all.py — pending</dd>
@@ -91,8 +91,8 @@ function SettingsPage() {
       </Card>
       <Card title="Dataset provenance" desc="Only license-clear examples are used.">
         <ul className="space-y-3 text-sm">
-          <li className="flex items-start justify-between gap-4"><span><span className="font-mono text-xs">skimage.data.camera</span><span className="block text-xs text-muted-foreground">Source of the preliminary measurements, area-downsampled. Confirm license before redistribution.</span></span><Tag tone="measured">Used</Tag></li>
-          <li className="flex items-start justify-between gap-4"><span><span className="font-mono text-xs">skimage.data.astronaut</span><span className="block text-xs text-muted-foreground">Candidate for multi-image aggregates.</span></span><Tag tone="pending">Planned</Tag></li>
+          <li className="flex items-start justify-between gap-4"><span><span className="font-mono text-xs">skimage.data.camera</span><span className="block text-xs text-muted-foreground">Source of the preliminary measurements, area-downsampled. </span><span className="mt-1 block text-[11px]">License: <span className="text-warning">confirm license</span></span></span><Tag tone="measured">Used</Tag></li>
+          <li className="flex items-start justify-between gap-4"><span><span className="font-mono text-xs">skimage.data.astronaut</span><span className="block text-xs text-muted-foreground">Candidate for multi-image aggregates.</span><span className="mt-1 block text-[11px]">License: NASA, public domain</span></span><Tag tone="pending">Planned</Tag></li>
           <li className="flex items-start justify-between gap-4"><span><span className="font-mono text-xs">sklearn load_digits</span><span className="block text-xs text-muted-foreground">Candidate for a stretch QNN experiment.</span></span><Tag tone="pending">Planned</Tag></li>
           <li className="text-xs text-muted-foreground">The in-app sample tile is a procedural camera-like stand-in for display. MNIST, CIFAR, MRI and sonar assets are excluded. YCbCr chroma and ROI compression are planned features.</li>
         </ul>

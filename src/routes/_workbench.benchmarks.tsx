@@ -28,7 +28,7 @@ export const Route = createFileRoute("/_workbench/benchmarks")({
   component: Benchmarks,
 });
 
-type Cell = { qubits: number; eps: number; ordering: Ordering; chi: Chi; rec?: ResultRecord; saved: boolean };
+type Cell = { qubits: number; eps: number; ordering: Ordering; chi: Chi; rec?: ResultRecord | undefined; saved: boolean };
 const QUBITS = [8, 10];
 const SHAPES = { 1: "triangle", 2: "circle", 4: "square", 8: "diamond" } as const;
 const ORD_COLOR: Record<Ordering, string> = { hilbert: "var(--color-primary)", "z-order": "var(--color-chart-2)", "row-major": "var(--color-chart-4)" };
@@ -108,14 +108,14 @@ function Benchmarks() {
   })), [res.records]);
 
   const scaling = useMemo(() => {
-    const byQ = new Map<number, Record<string, number>>();
+    const byQ = new Map<number, Record<string, number | undefined>>();
     res.records.filter((r) => r.status === "complete").forEach((r) => {
-      const row = byQ.get(r.qubits) ?? { qubits: r.qubits };
+      const row: Record<string, number | undefined> = byQ.get(r.qubits) ?? { qubits: r.qubits };
       if (num(r.mps_cnots) && r.mps_cnots > 0) row[`χ=${r.chi}`] = r.mps_cnots;
-      if (num(r.exact_cnots)) row.Exact = r.exact_cnots;
+      if (num(r.exact_cnots)) row["Exact"] = r.exact_cnots;
       byQ.set(r.qubits, row);
     });
-    return [...byQ.values()].sort((a, b) => a.qubits! - b.qubits!);
+    return [...byQ.values()].sort((a, b) => a["qubits"]! - b["qubits"]!);
   }, [res.records]);
   const scaleKeys = ["Exact", ...CHIS.filter((c) => c > 1).map((c) => `χ=${c}`)].filter((k) => scaling.some((r) => r[k]));
 
@@ -254,7 +254,7 @@ function Benchmarks() {
         </ChartCard>
 
         <ChartCard className="lg:col-span-2" title="Scaling · compiled CNOTs vs qubits" desc="Only 8 and 10 qubits are measured so far; lines between two points are not a fitted trend." chartLabel="Line chart of CNOT count against qubit count"
-          table={{ head: ["Qubits", ...scaleKeys], rows: scaling.map((r) => [r.qubits!, ...scaleKeys.map((k) => r[k] ?? "Pending")]) }}>
+          table={{ head: ["Qubits", ...scaleKeys], rows: scaling.map((r) => [r["qubits"]!, ...scaleKeys.map((k) => r[k] ?? "Pending")]) }}>
           <div className="h-64">
             {scaling.length ? (
               <ResponsiveContainer width="100%" height="100%">

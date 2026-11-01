@@ -56,7 +56,7 @@ export interface ResultRecord {
 export interface ResultsState {
   status: "loading" | "ready" | "error";
   records: ResultRecord[];
-  meta: { generated_at?: string; note?: string };
+  meta: { generated_at?: string | undefined; note?: string | undefined };
   error?: string;
 }
 
@@ -72,7 +72,7 @@ export function parseResults(raw: unknown): Pick<ResultsState, "records" | "meta
   const records = arr.filter(
     (r): r is ResultRecord =>
       !!r && typeof r === "object" && typeof (r as ResultRecord).id === "string" && typeof (r as ResultRecord).qubits === "number",
-  ).map((r) => ({ source: "benchmark", status: "complete", image: "camera", mode: "grayscale", ordering: "hilbert", eps_cx: 0, chi: 1, ...r }) as ResultRecord);
+  ).map((r) => Object.assign({ source: "benchmark", status: "complete", image: "camera", mode: "grayscale", ordering: "hilbert", eps_cx: 0, chi: 1 }, r) as ResultRecord);
   return { records, meta: Array.isArray(raw) ? {} : { generated_at: obj.generated_at, note: obj.note } };
 }
 
@@ -118,8 +118,8 @@ const P = { measured: false } as const;
 const m = (v: number | null | undefined): M => (num(v) ? { value: v, measured: true } : P);
 
 export interface Metrics {
-  record?: ResultRecord;
-  noiseless?: ResultRecord;
+  record?: ResultRecord | undefined;
+  noiseless?: ResultRecord | undefined;
   exactCnots: M; mpsCnots: M;
   exactNoisyF: M; mpsNoisyF: M; mpsIdealF: M;
   exactDepth: M; mpsDepth: M;

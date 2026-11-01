@@ -1,10 +1,11 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { ArrowRight, Check, Clock } from "lucide-react";
+import { ArrowRight, Check, Clock, Copy, Github, Loader2 } from "lucide-react";
 import { useMemo } from "react";
 import { Button } from "@/components/ui/button";
-import { CircuitDiagram, Logo, PixelCanvas, ProvenanceNote, Reveal, Tag } from "@/components/qj/primitives";
-import { NOISELESS_N10, NOISY_RECORDS } from "@/lib/data";
-import { illustrate, sampleImage } from "@/lib/imagery";
+import { CircuitDiagram, Logo, ProvenanceNote, RecordImage, Reveal, Tag } from "@/components/qj/primitives";
+import { CHIS } from "@/lib/data";
+import { findRecord, num, useResults } from "@/lib/results";
+import { toast } from "sonner";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -39,10 +40,11 @@ function Formula({ children }: { children: React.ReactNode }) {
 }
 
 function Home() {
-  const orig = useMemo(() => sampleImage(32), []);
-  const exact = useMemo(() => illustrate(orig, { fidelity: 0.12, blockiness: 1, seed: 3 }), [orig]);
-  const mps = useMemo(() => illustrate(orig, { fidelity: 0.82, blockiness: 4, seed: 5 }), [orig]);
-  const n10 = NOISY_RECORDS.filter((r) => r.qubits === 10);
+  const { records } = useResults();
+  const get = (chi: number, eps: number, qubits = 10) => findRecord(records, { qubits, ordering: "hilbert", chi, eps, image: "camera" });
+  const feat = get(2, 0.003);
+  const fx = (v?: number | null, d = 4) => (num(v) ? v.toFixed(d) : "Pending");
+  const noisyEps = useMemo(() => [...new Set(records.filter((r) => r.qubits === 10 && r.eps_cx > 0).map((r) => r.eps_cx))].sort(), [records]);
 
   return (
     <div className="min-h-screen bg-background">
@@ -57,6 +59,7 @@ function Home() {
             <a href="#method" className="hover:text-foreground">Method</a>
             <a href="#noise" className="hover:text-foreground">Noise model</a>
             <a href="#evidence" className="hover:text-foreground">Evidence</a>
+            <a href="#roadmap" className="hover:text-foreground">Roadmap</a>
           </nav>
           <Button asChild size="sm"><Link to="/overview">Open workbench <ArrowRight className="ml-1 h-3.5 w-3.5" /></Link></Button>
         </div>
@@ -80,16 +83,16 @@ function Home() {
         <Reveal delay={120}>
           <div className="rounded-2xl border bg-card p-5 shadow-sm">
             <div className="grid grid-cols-3 gap-3">
-              {[["Original", orig], ["Exact loader", exact], ["MPS · χ=2", mps]].map(([l, im]) => (
-                <figure key={l as string}>
-                  <PixelCanvas img={im as never} label={l as string} />
-                  <figcaption className="mt-2 text-xs text-muted-foreground">{l as string}</figcaption>
+              {([["Original", feat?.images?.original], ["Exact loader", feat?.images?.exact], ["MPS · χ=2", feat?.images?.mps]] as const).map(([l, src]) => (
+                <figure key={l}>
+                  <RecordImage src={src} label={l} emptyText="Illustrative placeholder" />
+                  <figcaption className="mt-2 text-xs text-muted-foreground">{l}</figcaption>
                 </figure>
               ))}
             </div>
             <div className="mt-4 flex items-center justify-between border-t pt-3">
               <span className="font-mono text-[11px] text-muted-foreground">32×32 · 10 qubits · Hilbert</span>
-              <Tag tone="illustrative">Illustrative preview · not an Aer benchmark</Tag>
+              <Tag tone="illustrative">{feat?.images?.mps ? "From results data" : "Illustrative"}</Tag>
             </div>
           </div>
         </Reveal>
@@ -104,7 +107,7 @@ function Home() {
             Quantum JPEG studies a narrow, testable question: <span className="text-foreground">can a deliberately approximate, low-depth circuit retain more of the original image state under simulated noise than an exact one?</span> It compares row-major, Z-order (Morton) and Hilbert pixel orderings without assuming any of them wins.
           </p>
           <div className="grid gap-3 pt-3 sm:grid-cols-3">
-            {[["1,013", "CNOTs · exact loader, 10 qubits"], ["25", "CNOTs · MPS χ=2, 10 qubits"], ["0.951", "Ideal fidelity · χ=2 to original"]].map(([v, l]) => (
+            {[[String(get(2, 0)?.exact_cnots ?? "Pending"), "CNOTs · exact loader, 10 qubits"], [String(get(2, 0)?.mps_cnots ?? "Pending"), "CNOTs · MPS χ=2, 10 qubits"], [fx(get(2, 0)?.ideal_fidelity_mps, 3), "Ideal fidelity · χ=2 to original"]].map(([v, l]) => (
               <div key={l} className="rounded-xl border bg-card p-4">
                 <p className="font-mono text-2xl text-foreground tabular">{v}</p>
                 <p className="mt-1 text-xs">{l}</p>
@@ -143,9 +146,9 @@ function Home() {
               </thead>
               <tbody className="font-mono">
                 {([1, 2, 4, 8] as const).map((c) => (
-                  <tr key={c} className="border-t"><td className="px-4 py-2 text-foreground">χ={c}</td><td className="px-4 py-2 text-right">{NOISELESS_N10[c].cnots}</td><td className="px-4 py-2 text-right text-foreground">{NOISELESS_N10[c].idealFidelity.toFixed(3)}</td></tr>
+                  <tr key={c} className="border-t"><td className="px-4 py-2 text-foreground">χ={c}</td><td className="px-4 py-2 text-right">{get(c, 0)?.mps_cnots ?? "Pending"}</td><td className="px-4 py-2 text-right text-foreground">{fx(get(c, 0)?.ideal_fidelity_mps, 3)}</td></tr>
                 ))}
-                <tr className="border-t"><td className="px-4 py-2 text-foreground">Exact</td><td className="px-4 py-2 text-right">1013</td><td className="px-4 py-2 text-right">by construction</td></tr>
+                <tr className="border-t"><td className="px-4 py-2 text-foreground">Exact</td><td className="px-4 py-2 text-right">{get(2, 0)?.exact_cnots ?? "Pending"}</td><td className="px-4 py-2 text-right">by construction</td></tr>
               </tbody>
             </table>
             <p className="border-t px-4 py-2 text-xs">Noiseless · camera 32×32 · Hilbert · single image · earlier sandbox run (Qiskit 2.6)</p>
@@ -181,19 +184,20 @@ function Home() {
             <table className="w-full text-sm">
               <thead className="text-xs text-muted-foreground"><tr><th className="px-4 py-2 text-left font-medium">εcx</th><th className="px-4 py-2 text-right font-medium">Exact</th><th className="px-4 py-2 text-right font-medium">χ=2</th><th className="px-4 py-2 text-right font-medium">χ=4</th><th className="px-4 py-2 text-right font-medium">χ=8</th></tr></thead>
               <tbody className="font-mono">
-                {n10.map((r) => (
-                  <tr key={r.epsCx} className="border-t">
-                    <td className="px-4 py-2">{(r.epsCx * 100).toFixed(1)}%</td>
-                    <td className="px-4 py-2 text-right">{r.exact.fidelity.toFixed(4)} <span className="text-muted-foreground">({r.exact.cnots})</span></td>
+                {noisyEps.map((e) => (
+                  <tr key={e} className="border-t">
+                    <td className="px-4 py-2">{(e * 100).toFixed(1)}%</td>
+                    <td className="px-4 py-2 text-right">{fx(get(2, e)?.noisy_fidelity_exact)} <span className="text-muted-foreground">({get(2, e)?.exact_cnots ?? "—"})</span></td>
                     {([2, 4, 8] as const).map((c) => (
-                      <td key={c} className={`px-4 py-2 text-right ${c === 2 ? "text-primary" : ""}`}>{r.mps[c]!.fidelity.toFixed(4)} <span className="text-muted-foreground">({r.mps[c]!.cnots})</span></td>
+                      <td key={c} className={`px-4 py-2 text-right ${c === 2 ? "text-primary" : ""}`}>{fx(get(c, e)?.noisy_fidelity_mps)} <span className="text-muted-foreground">({get(c, e)?.mps_cnots ?? "—"})</span></td>
                     ))}
                   </tr>
                 ))}
+                {!noisyEps.length && <tr><td colSpan={5} className="px-4 py-6 text-center text-muted-foreground">No noisy records yet — Pending.</td></tr>}
               </tbody>
             </table>
           </div>
-          <p className="text-[15px] leading-relaxed text-muted-foreground">In this single-image run, χ=2 retained more fidelity to the original state than χ=4, χ=8 and the exact loader at both tested error rates — while its ideal fidelity was only 0.951. That is a statement about state fidelity, not image quality: noisy PSNR and SSIM have not been measured.</p>
+          <p className="text-[15px] leading-relaxed text-muted-foreground">In this single-image run, χ=2 retained more fidelity to the original state than χ=4, χ=8 and the exact loader at both tested error rates — while its ideal fidelity was only {fx(get(2, 0)?.ideal_fidelity_mps, 3)}. That is a statement about state fidelity, not image quality: noisy PSNR and SSIM have not been measured.</p>
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="rounded-xl border bg-card p-5">
               <p className="text-sm font-medium">Measured · earlier sandbox run</p>
@@ -228,10 +232,79 @@ function Home() {
           </div>
         </Reveal>
       </section>
-      <footer className="mx-auto flex max-w-6xl justify-between px-8 py-8 text-xs text-muted-foreground">
-        <span>Quantum JPEG · research software prototype</span>
-        <span>No claims of quantum advantage or hardware performance.</span>
-      </footer>
+      <RoadmapAndLimits />
+      <Footer />
     </div>
+  );
+}
+
+const ROADMAP: [string, "Done" | "In progress" | "Planned"][] = [
+  ["Hilbert ordering · χ=2/4/8 noisy runs (8 & 10 qubits)", "Done"],
+  ["Row-major & Z-order runs", "Planned"],
+  ["χ=1 under noise", "Planned"],
+  ["Multi-image aggregates (camera, astronaut, textures, noise images)", "Planned"],
+  ["PSNR / SSIM", "Planned"],
+  ["Equal-budget baselines (layered/variational loader, FRQI/NEQR)", "Planned"],
+  ["12–16 qubit scaling", "Planned"],
+  ["Fake-backend noise with coupling map", "Planned"],
+  ["One small hardware run", "Planned"],
+  ["YCbCr & ROI compression", "Planned"],
+  ["QNN testbed", "Planned"],
+];
+const LIMITS = [
+  ["Single image", "All measured values come from one downsampled camera image."],
+  ["Simulation only", "Every number comes from a Qiskit Aer density-matrix simulation, not hardware."],
+  ["Fidelity ≠ image quality", "High state fidelity does not guarantee a visually good reconstruction; PSNR/SSIM are pending."],
+  ["Readout shot cost", "Reading out an N-pixel image needs on the order of N/ε² shots, which can erase any gate savings."],
+  ["Smooth images favour MPS", "Smooth images have low entanglement across cuts; textured or noisy images may need much larger χ."],
+];
+const BIBTEX = `@software{quantum_jpeg_2026,
+  title  = {Quantum JPEG: Approximate image-state preparation with truncated MPS circuits},
+  author = {Rohan V},
+  year   = {2026},
+  note   = {Simulation study; preliminary single-image results}
+}`;
+
+function RoadmapAndLimits() {
+  return (
+    <>
+      <Section id="roadmap" eyebrow="07 · Roadmap" title="What comes next.">
+        <ul className="divide-y rounded-xl border bg-card text-sm">
+          {ROADMAP.map(([t, st]) => (
+            <li key={t} className="flex items-center justify-between gap-4 px-4 py-2.5">
+              <span>{t}</span>
+              <Tag tone={st === "Done" ? "measured" : st === "In progress" ? "illustrative" : "muted"}>
+                {st === "Done" ? <Check className="h-3 w-3" /> : st === "In progress" ? <Loader2 className="h-3 w-3" /> : <Clock className="h-3 w-3" />} {st}
+              </Tag>
+            </li>
+          ))}
+        </ul>
+      </Section>
+      <Section id="limitations" eyebrow="08 · Limitations" title="Read the results with these in mind.">
+        <dl className="grid gap-3 sm:grid-cols-2">
+          {LIMITS.map(([t, d]) => <div key={t} className="rounded-xl border bg-card p-4"><dt className="text-sm font-medium">{t}</dt><dd className="mt-1 text-sm text-muted-foreground">{d}</dd></div>)}
+        </dl>
+      </Section>
+    </>
+  );
+}
+
+function Footer() {
+  return (
+    <footer className="border-t">
+      <div className="mx-auto grid max-w-6xl gap-8 px-8 py-10 text-xs text-muted-foreground md:grid-cols-[1fr_1.2fr]">
+        <div className="space-y-2">
+          <p className="font-medium text-foreground">Quantum JPEG · research software prototype</p>
+          <a href="#" className="inline-flex items-center gap-1.5 hover:text-foreground"><Github className="h-3.5 w-3.5" /> GitHub repository (link coming soon)</a>
+          <p>License: to be confirmed before public release.</p>
+          <p>Built with Qiskit and Qiskit Aer. Not affiliated with or endorsed by IBM. No claims of quantum advantage or hardware performance.</p>
+        </div>
+        <div>
+          <div className="flex items-center justify-between"><p className="font-medium text-foreground">Cite this</p>
+            <button onClick={() => navigator.clipboard.writeText(BIBTEX).then(() => toast.success("BibTeX copied"))} className="inline-flex items-center gap-1 hover:text-foreground"><Copy className="h-3 w-3" /> Copy</button></div>
+          <pre className="mt-2 overflow-x-auto rounded-lg border bg-card p-3 font-mono text-[11px]">{BIBTEX}</pre>
+        </div>
+      </div>
+    </footer>
   );
 }

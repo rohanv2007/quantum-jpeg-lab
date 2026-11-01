@@ -32,7 +32,7 @@ export const Route = createFileRoute("/_workbench/simulation")({
 const STAGES = ["Preprocessing", "State preparation", "Transpilation", "Noise simulation", "Reconstruction", "Scoring"];
 
 type Phase = "idle" | "running" | "done" | "error";
-interface Result { config: SimConfig; upload: Img | null; metrics: Metrics; savedId?: string }
+interface Result { config: SimConfig; upload: Img | null; metrics: Metrics; savedId?: string | undefined }
 
 function Seg<T extends string | number>({ value, options, onChange, label }: { value: T; options: { value: T; label: string }[]; onChange: (v: T) => void; label: string }) {
   return (
@@ -454,7 +454,7 @@ function NumField({ label, value, onChange, step = 1, tip }: { label: string; va
   );
 }
 
-function EntanglementView({ spectrum, ordering }: { spectrum?: { cuts: number[][]; entropy?: number[] }; ordering: string }) {
+function EntanglementView({ spectrum, ordering }: { spectrum?: { cuts: number[][]; entropy?: number[] | undefined } | undefined; ordering: string }) {
   if (!spectrum?.cuts?.length)
     return (
       <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed bg-card px-6 py-24 text-center">
