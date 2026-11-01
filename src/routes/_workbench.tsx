@@ -4,6 +4,7 @@ import { BarChart3, ChevronRight, FlaskConical, History, LayoutDashboard, PanelL
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Logo } from "@/components/qj/primitives";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { DEFAULT_CONFIG } from "@/lib/data";
 import { setDraftConfig, loadDefaults } from "@/lib/draft";
 import { cn } from "@/lib/utils";
@@ -60,24 +61,23 @@ function WorkbenchLayout() {
             <p className="text-[11px] font-medium uppercase tracking-wider text-sidebar-muted">Simulation environment</p>
             <dl className="mt-2.5 space-y-1.5 font-mono text-[11px]">
               <div className="flex justify-between"><dt className="text-sidebar-muted">Qiskit</dt><dd>2.6</dd></div>
-              <div className="flex justify-between"><dt className="text-sidebar-muted">Aer</dt><dd className="text-warning">pending</dd></div>
-              <div className="flex justify-between"><dt className="text-sidebar-muted">Backend</dt><dd>prototype UI</dd></div>
+              <div className="flex justify-between"><dt className="text-sidebar-muted">Aer</dt><dd>not recorded</dd></div>
+              <div className="flex justify-between"><dt className="text-sidebar-muted">Backend</dt><dd>replay mode</dd></div>
             </dl>
             <p className="mt-2.5 flex items-center gap-1.5 text-[11px] text-sidebar-muted">
-              <span className="h-1.5 w-1.5 rounded-full bg-sidebar-primary" /> Previews are illustrative
+              <span className="h-1.5 w-1.5 rounded-full bg-sidebar-primary" /> Showing precomputed results
             </p>
           </div>
         ) : (
           <div className="mx-auto mb-4 h-2 w-2 rounded-full bg-sidebar-primary" title="Prototype UI · previews are illustrative" />
         )}
         <button onClick={() => setCollapsed((c) => !c)} className="flex h-11 items-center gap-3 border-t border-sidebar-border px-5 text-xs text-sidebar-muted hover:text-sidebar-accent-foreground" aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}>
-          <PanelLeft className="h-4 w-4" />
-          {!collapsed && "Collapse"}
+          <PanelLeft className="h-4 w-4" aria-hidden />
         </button>
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="sticky top-0 z-20 flex h-16 items-center gap-4 border-b bg-background/85 px-8 backdrop-blur">
+        <header className="sticky top-0 z-20 flex h-16 items-center gap-3 border-b bg-background/85 px-4 md:px-8 backdrop-blur">
           <div className="min-w-0 flex-1">
             <nav className="flex items-center gap-1.5 text-xs text-muted-foreground" aria-label="Breadcrumb">
               <Link to="/" className="hover:text-foreground"><Home className="h-3.5 w-3.5" /></Link>
@@ -103,8 +103,12 @@ function WorkbenchLayout() {
           >
             <Plus className="h-4 w-4" /> New simulation
           </Button>
+          <Tooltip>
+            <TooltipTrigger className="hidden items-center gap-1.5 rounded-full border px-2.5 py-1 font-mono text-[11px] text-muted-foreground md:flex">Qiskit 2.6 · Aer not recorded · replay</TooltipTrigger>
+            <TooltipContent className="max-w-xs text-xs">Replay mode: the workbench shows precomputed results from results.json. Nothing is simulated in your browser; configurations without a record are saved as pending.</TooltipContent>
+          </Tooltip>
           <DropdownMenu>
-            <DropdownMenuTrigger className="flex h-9 w-9 items-center justify-center rounded-full bg-primary-soft text-xs font-semibold text-primary" aria-label="Profile menu">RV</DropdownMenuTrigger>
+            <DropdownMenuTrigger className="flex h-9 w-9 items-center justify-center rounded-full bg-primary-soft text-xs font-semibold text-primary" aria-label="Profile menu for Rohan V" title="Rohan V">RV</DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-52">
               <DropdownMenuLabel className="font-normal">
                 <p className="text-sm font-medium">Rohan V</p>
@@ -118,7 +122,7 @@ function WorkbenchLayout() {
             </DropdownMenuContent>
           </DropdownMenu>
         </header>
-        <main className="flex-1 px-8 py-7 animate-in fade-in duration-300" key={path}>
+        <main className="flex-1 px-4 py-7 md:px-8 animate-in fade-in duration-300" key={path}>
           <Outlet />
         </main>
       </div>
